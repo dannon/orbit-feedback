@@ -6,4 +6,4 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "orbit-feedback"
-database_id = "FILL_AFTER_d1_create"
+database_id = "dcd043de-93e7-4c67-8d07-86f7940c9184"
