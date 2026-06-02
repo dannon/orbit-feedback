@@ -1,0 +1,17 @@
+{
+  "name": "orbit-feedback",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "db:local": "wrangler d1 execute orbit-feedback --local --file=./schema.sql",
+    "db:remote": "wrangler d1 execute orbit-feedback --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0",
+    "wrangler": "^4.75.0"
+  }
+}
