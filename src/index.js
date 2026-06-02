@@ -57,13 +57,13 @@ async function handleFeedback(request, env) {
   const now = new Date().toISOString();
   await env.DB
     .prepare(
-      `INSERT INTO feedback (id, received_at, client_ts, source, app_version, title, body, payload, ip_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO feedback (id, received_at, client_ts, source, app_version, title, body, payload, ip_hash, tester_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id, now, str(payload.clientTs), str(payload.source),
       str(payload.sysinfo && payload.sysinfo.appVersion),
-      str(payload.title), str(payload.body), raw, ipHash,
+      str(payload.title), str(payload.body), raw, ipHash, str(payload.testerId),
     )
     .run();
 
@@ -77,7 +77,7 @@ async function handleAdmin(request, env) {
   const limit = Math.min(parseInt(params.get("limit") || "50", 10) || 50, 500);
   const offset = Math.max(parseInt(params.get("offset") || "0", 10) || 0, 0);
   const res = await env.DB
-    .prepare("SELECT id, received_at, source, app_version, title, body, payload FROM feedback ORDER BY received_at DESC LIMIT ? OFFSET ?")
+    .prepare("SELECT id, received_at, source, app_version, title, body, payload, tester_id FROM feedback ORDER BY received_at DESC LIMIT ? OFFSET ?")
     .bind(limit, offset)
     .all();
   return json({ ok: true, rows: res.results || [] }, 200);

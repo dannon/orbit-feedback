@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS feedback (
   title        TEXT,
   body         TEXT,
   payload      TEXT NOT NULL,
-  ip_hash      TEXT
+  ip_hash      TEXT,
+  tester_id    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_received ON feedback(received_at);
 CREATE INDEX IF NOT EXISTS idx_feedback_iphash ON feedback(ip_hash);

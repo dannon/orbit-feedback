@@ -33,7 +33,7 @@ function fakeEnv(overrides = {}) {
           const hasOffset = /OFFSET\s+\?/i.test(sql);
           const colIndex = {
             id: 0, received_at: 1, client_ts: 2, source: 3,
-            app_version: 4, title: 5, body: 6, payload: 7, ip_hash: 8,
+            app_version: 4, title: 5, body: 6, payload: 7, ip_hash: 8, tester_id: 9,
           };
           const [limit, offset] = this._args;
           const ordered = [...rows].reverse(); // received_at DESC ~ newest first
@@ -174,5 +174,21 @@ describe("orbit-feedback worker", () => {
     const json = await res.json();
     expect(json.rows.length).toBe(1);
     expect(json.rows[0].title).toBe("B"); // C is newest; offset 1 skips it
+  });
+
+  it("captures tester_id from the payload and surfaces it in admin reads", async () => {
+    const env = fakeEnv();
+    await worker.fetch(post({ ...valid, testerId: "orbit-007" }), env);
+    const res = await worker.fetch(adminReq({ authorization: "Basic " + btoa("admin:pw") }), env);
+    const json = await res.json();
+    expect(json.rows[0].tester_id).toBe("orbit-007");
+  });
+
+  it("stores a null tester_id when the payload omits it", async () => {
+    const env = fakeEnv();
+    await worker.fetch(post(valid), env);
+    const res = await worker.fetch(adminReq({ authorization: "Basic " + btoa("admin:pw") }), env);
+    const json = await res.json();
+    expect(json.rows[0].tester_id).toBe(null);
   });
 });
