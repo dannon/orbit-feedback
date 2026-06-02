@@ -64,12 +64,17 @@ curl -sX POST localhost:8787/feedback -H 'Content-Type: application/json' \
 
 ## Reading feedback
 
-Via the admin endpoint:
+Via the admin endpoint (read-only Basic auth -- the username is ignored, only
+the password is checked against `ADMIN_PASSWORD`):
 
 ```bash
-curl -s https://orbit-feedback.<subdomain>.workers.dev/admin/feedback \
+curl -s "https://orbit-feedback.<subdomain>.workers.dev/admin/feedback?limit=500&offset=0" \
   -u "admin:$ADMIN_PASSWORD"
 ```
+
+Returns newest-first rows as `{ ok, rows: [...] }`. Each row carries
+`id, received_at, source, app_version, title, body` plus the full `payload`
+JSON. `limit` defaults to 50 and is capped at 500; page past that with `offset`.
 
 Or straight from D1:
 

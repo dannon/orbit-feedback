@@ -73,10 +73,12 @@ async function handleFeedback(request, env) {
 async function handleAdmin(request, env) {
   const unauth = requireBasicAuth(request, env);
   if (unauth) return unauth;
-  const limit = Math.min(parseInt(new URL(request.url).searchParams.get("limit") || "50", 10) || 50, 500);
+  const params = new URL(request.url).searchParams;
+  const limit = Math.min(parseInt(params.get("limit") || "50", 10) || 50, 500);
+  const offset = Math.max(parseInt(params.get("offset") || "0", 10) || 0, 0);
   const res = await env.DB
-    .prepare("SELECT id, received_at, source, app_version, title, body FROM feedback ORDER BY received_at DESC LIMIT ?")
-    .bind(limit)
+    .prepare("SELECT id, received_at, source, app_version, title, body, payload FROM feedback ORDER BY received_at DESC LIMIT ? OFFSET ?")
+    .bind(limit, offset)
     .all();
   return json({ ok: true, rows: res.results || [] }, 200);
 }

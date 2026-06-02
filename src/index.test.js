@@ -26,7 +26,22 @@ function fakeEnv(overrides = {}) {
           return null;
         },
         async all() {
-          return { results: rows.map((r) => ({ id: r[0], title: r[5] })) };
+          // Honor the real query: project exactly the SELECTed columns and
+          // apply OFFSET only when the SQL asks for it, so tests exercise the
+          // worker's SQL rather than a hardcoded mock shape.
+          const cols = /SELECT (.+?) FROM/i.exec(sql)[1].split(",").map((c) => c.trim());
+          const hasOffset = /OFFSET\s+\?/i.test(sql);
+          const colIndex = {
+            id: 0, received_at: 1, client_ts: 2, source: 3,
+            app_version: 4, title: 5, body: 6, payload: 7, ip_hash: 8,
+          };
+          const [limit, offset] = this._args;
+          const ordered = [...rows].reverse(); // received_at DESC ~ newest first
+          const start = hasOffset ? offset || 0 : 0;
+          const sliced = ordered.slice(start, start + (limit ?? ordered.length));
+          return {
+            results: sliced.map((r) => Object.fromEntries(cols.map((c) => [c, r[colIndex[c]]]))),
+          };
         },
       };
       return stmt;
@@ -43,8 +58,8 @@ function post(body, headers = {}) {
   });
 }
 
-function adminReq(headers = {}) {
-  return new Request("https://x/admin/feedback", { method: "GET", headers });
+function adminReq(headers = {}, query = "") {
+  return new Request("https://x/admin/feedback" + query, { method: "GET", headers });
 }
 
 const valid = {
@@ -139,5 +154,25 @@ describe("orbit-feedback worker", () => {
     expect(json.ok).toBe(true);
     expect(Array.isArray(json.rows)).toBe(true);
     expect(json.rows.length).toBe(1);
+  });
+
+  it("admin read includes the full payload for each row", async () => {
+    const env = fakeEnv();
+    await worker.fetch(post({ ...valid, body: "needle" }), env);
+    const res = await worker.fetch(adminReq({ authorization: "Basic " + btoa("admin:pw") }), env);
+    const json = await res.json();
+    expect(JSON.parse(json.rows[0].payload).body).toBe("needle");
+  });
+
+  it("admin read pages with limit and offset (newest-first)", async () => {
+    const env = fakeEnv();
+    for (const t of ["A", "B", "C"]) await worker.fetch(post({ ...valid, title: t }), env);
+    const res = await worker.fetch(
+      adminReq({ authorization: "Basic " + btoa("admin:pw") }, "?limit=1&offset=1"),
+      env,
+    );
+    const json = await res.json();
+    expect(json.rows.length).toBe(1);
+    expect(json.rows[0].title).toBe("B"); // C is newest; offset 1 skips it
   });
 });
