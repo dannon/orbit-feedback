@@ -17,7 +17,10 @@ export default {
       }
       return json({ ok: false, error: "not found" }, 404);
     } catch (err) {
-      return json({ ok: false, error: String(err && err.message || err) }, 500);
+      // Don't echo internal error text (SQL/table names, runtime throws) to
+      // clients; log it server-side and return a generic message.
+      console.error("feedback worker error", err);
+      return json({ ok: false, error: "internal error" }, 500);
     }
   },
 };
@@ -28,8 +31,15 @@ async function handleFeedback(request, env) {
     if (got !== env.FEEDBACK_KEY) return json({ ok: false, error: "unauthorized" }, 401);
   }
 
+  // Reject early on the declared length, then re-check the true byte size after
+  // reading (Content-Length can be absent or lie; raw.length counts UTF-16 units,
+  // so measure encoded bytes for an accurate cap).
+  const declared = Number(request.headers.get("content-length") || 0);
+  if (declared > MAX_BODY_BYTES) return json({ ok: false, error: "payload too large" }, 413);
   const raw = await request.text();
-  if (raw.length > MAX_BODY_BYTES) return json({ ok: false, error: "payload too large" }, 413);
+  if (new TextEncoder().encode(raw).length > MAX_BODY_BYTES) {
+    return json({ ok: false, error: "payload too large" }, 413);
+  }
 
   let payload;
   try { payload = JSON.parse(raw); } catch { return json({ ok: false, error: "bad json" }, 400); }
