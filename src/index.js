@@ -80,7 +80,18 @@ async function handleAdmin(request, env) {
     .prepare("SELECT id, received_at, source, app_version, title, body, payload, tester_id FROM feedback ORDER BY received_at DESC LIMIT ? OFFSET ?")
     .bind(limit, offset)
     .all();
-  return json({ ok: true, rows: res.results || [] }, 200);
+  return json({ ok: true, rows: (res.results || []).map(withPayloadFields) }, 200);
+}
+
+// Surface the stored payload's top-level fields (schemaVersion, sysinfo,
+// activityTail, shellTail, clientTs, ...) as first-class row properties so admins
+// don't have to JSON.parse the blob. The raw payload string is retained, and the
+// row's own DB columns win on any key collision.
+function withPayloadFields(row) {
+  let fields;
+  try { fields = JSON.parse(row.payload); } catch { return row; }
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return row;
+  return { ...fields, ...row };
 }
 
 function isValid(p) {

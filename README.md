@@ -72,9 +72,13 @@ curl -s "https://orbit-feedback.<subdomain>.workers.dev/admin/feedback?limit=500
   -u "admin:$ADMIN_PASSWORD"
 ```
 
-Returns newest-first rows as `{ ok, rows: [...] }`. Each row carries
-`id, received_at, source, app_version, title, body` plus the full `payload`
-JSON. `limit` defaults to 50 and is capped at 500; page past that with `offset`.
+Returns newest-first rows as `{ ok, rows: [...] }`. Each row carries the stored
+columns (`id, received_at, source, app_version, title, body, tester_id`) and the
+full `payload` JSON string, plus every top-level field from that payload broken
+out as its own property (`schemaVersion, clientTs, sysinfo, activityTail,
+shellTail, testerId, ...`) so you don't have to parse the blob yourself. On a key
+collision the stored column wins; an unparseable `payload` falls back to the raw
+columns. `limit` defaults to 50 and is capped at 500; page past that with `offset`.
 
 Or straight from D1:
 

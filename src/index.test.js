@@ -191,4 +191,48 @@ describe("orbit-feedback worker", () => {
     const json = await res.json();
     expect(json.rows[0].tester_id).toBe(null);
   });
+
+  it("admin read breaks out the payload's top-level fields onto each row", async () => {
+    const env = fakeEnv();
+    await worker.fetch(
+      post({
+        ...valid,
+        sysinfo: { appVersion: "0.3.0", platform: "darwin" },
+        activityTail: "t1 tool.end bash ✓ ok",
+        shellTail: "▸ bash(...)",
+        testerId: "orbit-016",
+      }),
+      env,
+    );
+    const res = await worker.fetch(adminReq({ authorization: "Basic " + btoa("admin:pw") }), env);
+    const row = (await res.json()).rows[0];
+    // The payload's nested + top-level fields are now first-class on the row.
+    expect(row.activityTail).toBe("t1 tool.end bash ✓ ok");
+    expect(row.shellTail).toBe("▸ bash(...)");
+    expect(row.sysinfo).toEqual({ appVersion: "0.3.0", platform: "darwin" });
+    expect(row.clientTs).toBe(valid.clientTs);
+    expect(row.schemaVersion).toBe(1);
+    expect(row.testerId).toBe("orbit-016");
+    // Existing columns + the raw payload string are still present.
+    expect(typeof row.id).toBe("string");
+    expect(typeof row.received_at).toBe("string");
+    expect(typeof row.payload).toBe("string");
+    expect(row.tester_id).toBe("orbit-016");
+  });
+
+  it("admin read tolerates an unparseable payload row (keeps columns, skips breakout)", async () => {
+    const env = fakeEnv();
+    // Inject a raw row whose payload column isn't valid JSON. Column order matches
+    // the fake's colIndex: id, received_at, client_ts, source, app_version, title,
+    // body, payload, ip_hash, tester_id.
+    env.DB.rows.push([
+      "id1", "2026-06-03T00:00:00.000Z", "2026-06-03T00:00:00.000Z", "orbit",
+      "0.0.0", "T", "B", "{ not json", "iphash", null,
+    ]);
+    const res = await worker.fetch(adminReq({ authorization: "Basic " + btoa("admin:pw") }), env);
+    expect(res.status).toBe(200);
+    const row = (await res.json()).rows[0];
+    expect(row.payload).toBe("{ not json");
+    expect(row.title).toBe("T");
+  });
 });
