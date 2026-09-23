@@ -12,7 +12,7 @@ no certs -- just capture.
 ```jsonc
 {
   "schemaVersion": 1,
-  "source": "orbit" | "loom-cli",
+  "source": "orbit" | "loom-cli" | "orbit-cli",
   "title": "non-empty string",
   "body": "string",
   "sysinfo": { /* optional diagnostics */ },

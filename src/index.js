@@ -3,7 +3,7 @@
 
 const MAX_BODY_BYTES = 256 * 1024;
 const RATE_LIMIT_PER_HOUR = 20;
-const SOURCES = new Set(["orbit", "loom-cli"]);
+const SOURCES = new Set(["orbit", "loom-cli", "orbit-cli"]);
 
 export default {
   async fetch(request, env) {
