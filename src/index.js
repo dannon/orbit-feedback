@@ -166,7 +166,12 @@ function requireBasicAuth(request, env) {
   if (!auth.startsWith("Basic ")) {
     return new Response("auth required", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="orbit-feedback"' } });
   }
-  const decoded = atob(auth.slice(6));
+  let decoded;
+  try {
+    decoded = atob(auth.slice(6));
+  } catch {
+    return new Response("forbidden", { status: 401 });
+  }
   const password = decoded.includes(":") ? decoded.slice(decoded.indexOf(":") + 1) : decoded;
   if (password !== expected) return new Response("forbidden", { status: 401 });
   return null;

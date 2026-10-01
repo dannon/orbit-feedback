@@ -133,7 +133,10 @@ export async function handleAdminObservations(request, env) {
   // Every stored received_at sorts above the empty string, so an absent or
   // unparseable `since` means "everything" rather than "nothing".
   const sinceRaw = params.get("since");
-  const since = sinceRaw && Number.isFinite(Date.parse(sinceRaw)) ? sinceRaw : "";
+  // Re-serialise so the string comparison against ISO received_at is honest:
+  // "Oct 1 2026" parses, but compared raw it sorts above every ISO date.
+  const sinceMs = sinceRaw ? Date.parse(sinceRaw) : NaN;
+  const since = Number.isFinite(sinceMs) ? new Date(sinceMs).toISOString() : "";
 
   const res = await env.DB
     .prepare(

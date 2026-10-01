@@ -151,6 +151,17 @@ describe("GET /admin/observations", () => {
     expect((await read(`?since=${encodeURIComponent(all[0].received_at)}`)).body.rows).toEqual([]);
   });
 
+  it("normalises a non-ISO since before comparing", async () => {
+    await submit();
+    expect((await read("?since=" + encodeURIComponent("Jan 1 2000"))).body.rows.length).toBe(1);
+    expect((await read("?since=" + encodeURIComponent("Jan 1 2999"))).body.rows.length).toBe(0);
+  });
+
+  it("401s malformed base64 in the Authorization header instead of a 500", async () => {
+    const res = await worker.fetch(adminReq("", { authorization: "Basic %%%" }), testEnv());
+    expect(res.status).toBe(401);
+  });
+
   it("ignores an unparseable since rather than returning nothing", async () => {
     await submit();
     expect((await read("?since=last%20tuesday")).body.rows.length).toBe(1);
