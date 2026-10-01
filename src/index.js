@@ -1,9 +1,18 @@
 // Capture-only feedback Worker. Accepts a validated POST and stores one D1 row.
 // Mirrors ~/work/gta's shape (hashIP, Basic-auth admin) minus all cert machinery.
 
+import {
+  handleAdminObservations,
+  handleDeleteObservation,
+  handlePostObservation,
+} from "./observations.js";
+
 const MAX_BODY_BYTES = 256 * 1024;
 const RATE_LIMIT_PER_HOUR = 20;
 const SOURCES = new Set(["orbit", "loom-cli", "orbit-cli"]);
+// Validated ids are UUIDs; this is the cheap shape gate on the path segment so a
+// traversal-shaped id never reaches a bind parameter.
+const OBSERVATION_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
 export default {
   async fetch(request, env) {
@@ -14,6 +23,20 @@ export default {
       }
       if (url.pathname === "/admin/feedback" && request.method === "GET") {
         return await handleAdmin(request, env);
+      }
+      if (url.pathname === "/observations" && request.method === "POST") {
+        return await handlePostObservation(request, env);
+      }
+      const retract = /^\/observations\/([^/]+)$/.exec(url.pathname);
+      if (retract && request.method === "DELETE") {
+        const id = safeDecode(retract[1]);
+        if (id === null || !OBSERVATION_ID.test(id)) return json({ ok: false, error: "not found" }, 404);
+        return await handleDeleteObservation(request, env, id);
+      }
+      if (url.pathname === "/admin/observations" && request.method === "GET") {
+        const unauth = requireBasicAuth(request, env);
+        if (unauth) return unauth;
+        return await handleAdminObservations(request, env);
       }
       return json({ ok: false, error: "not found" }, 404);
     } catch (err) {
@@ -115,6 +138,15 @@ function requireBasicAuth(request, env) {
   const password = decoded.includes(":") ? decoded.slice(decoded.indexOf(":") + 1) : decoded;
   if (password !== expected) return new Response("forbidden", { status: 401 });
   return null;
+}
+
+// A malformed escape is a 404 like any other bad id, not a 500.
+function safeDecode(segment) {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
 }
 
 function str(v) { return v == null ? null : String(v); }
