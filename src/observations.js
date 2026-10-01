@@ -94,10 +94,27 @@ export async function handlePostObservation(request, env, now = new Date()) {
   return json({ ok: true, id: payload.id, retractToken }, 202);
 }
 
+const RETRACT_TOKEN = /^[0-9a-f]{32}$/;
+
+// "Idempotent" here means a repeat call has no side effects, not that it reports
+// success twice: once the row is gone so is its retract_hash, so a second call
+// cannot verify the token and answers 404 like every other miss. A wrong token,
+// an unknown id and an already-retracted id are deliberately indistinguishable.
+// The id and the hash are matched inside one DELETE, so there is no
+// read-then-write window and no hash comparison in JS.
 export async function handleDeleteObservation(request, env, id) {
   const denied = requireIngest(request, env);
   if (denied) return denied;
-  return json({ ok: false, error: "not implemented" }, 501);
+
+  const token = request.headers.get("X-Retract-Token") || "";
+  if (!RETRACT_TOKEN.test(token)) return json({ ok: false, error: "not found" }, 404);
+
+  const res = await env.DB
+    .prepare("DELETE FROM observations WHERE id = ? AND retract_hash = ?")
+    .bind(id, await sha256Hex(token))
+    .run();
+  if (!res.meta || res.meta.changes !== 1) return json({ ok: false, error: "not found" }, 404);
+  return json({ ok: true, deleted: true }, 200);
 }
 
 export async function handleAdminObservations(request, env) {
