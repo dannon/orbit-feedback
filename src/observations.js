@@ -167,6 +167,12 @@ function withObservationFields(row) {
   return { ...(parsed || {}), ...row, tool_ids: toolIds };
 }
 
+// Retention is enforced here, not by a column default: D1 has no TTL, so the
+// daily cron is the only thing that makes the 180-day promise true.
 export async function deleteExpiredObservations(env, now = new Date()) {
-  return 0;
+  const res = await env.DB
+    .prepare("DELETE FROM observations WHERE expires_at <= ?")
+    .bind(now.toISOString())
+    .run();
+  return (res.meta && res.meta.changes) || 0;
 }

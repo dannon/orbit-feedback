@@ -2,6 +2,7 @@
 // Mirrors ~/work/gta's shape (hashIP, Basic-auth admin) minus all cert machinery.
 
 import {
+  deleteExpiredObservations,
   handleAdminObservations,
   handleDeleteObservation,
   handlePostObservation,
@@ -44,6 +45,18 @@ export default {
       // clients; log it server-side and return a generic message.
       console.error("feedback worker error", err);
       return json({ ok: false, error: "internal error" }, 500);
+    }
+  },
+
+  // Daily retention sweep for the observations table. A failure is logged and
+  // swallowed: tomorrow's run picks up whatever this one missed, and throwing
+  // out of a cron handler only gets it retried against the same broken state.
+  async scheduled(event, env, ctx) {
+    try {
+      const deleted = await deleteExpiredObservations(env);
+      console.log("observation expiry sweep", { cron: event && event.cron, deleted });
+    } catch (err) {
+      console.error("observation expiry sweep failed", err);
     }
   },
 };
