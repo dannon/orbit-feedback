@@ -90,15 +90,22 @@ const TOOL_KEYS = new Set(["id", "version"]);
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ISO_TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/;
 const INSTALL_TOKEN_RE = /^[0-9a-f]{32}$/;
-const NON_ASCII_RE = /[^\x20-\x7E]/;
 
 function isPlainObject(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+// An unknown key's name is as client-controlled as a value, so it is only
+// echoed when it looks like an ordinary identifier. Anything else (a path, an
+// email, a long blob) is reported as <unknown> so the 400 never carries it.
+const SAFE_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/;
+function keyLabel(k) {
+  return SAFE_KEY_RE.test(k) ? k : "<unknown>";
+}
+
 function pushUnknownKeys(obj, allowed, prefix, errors) {
   for (const k of Object.keys(obj)) {
-    if (!allowed.has(k)) errors.push(`${prefix ? prefix + "." : ""}${k}:unknown-key`);
+    if (!allowed.has(k)) errors.push(`${prefix ? prefix + "." : ""}${keyLabel(k)}:unknown-key`);
   }
 }
 
@@ -108,20 +115,24 @@ function badString(v, max, { allowEmpty = false } = {}) {
   return v.length > max;
 }
 
-// Every string in `value`, at any depth, that matches `re`, as `path:name`.
+// Every string in `value`, at any depth, run through the whole leak table, as
+// `path:name` -- the same walk as the client's scanObservationForLeaks.
 // installToken is skipped: it is 32 hex by construction and already checked.
-function scanStrings(value, re, name, path = "", hits = []) {
+function scanAllStrings(value, path = "", hits = []) {
   if (typeof value === "string") {
-    if (path !== "installToken" && re.test(value)) hits.push(`${path}:${name}`);
+    if (path === "installToken") return hits;
+    for (const [name, re] of LEAK_PATTERNS) {
+      if (re.test(value)) hits.push(`${path}:${name}`);
+    }
     return hits;
   }
   if (Array.isArray(value)) {
-    value.forEach((v, i) => scanStrings(v, re, name, `${path}[${i}]`, hits));
+    value.forEach((v, i) => scanAllStrings(v, `${path}[${i}]`, hits));
     return hits;
   }
   if (isPlainObject(value)) {
     for (const [k, v] of Object.entries(value)) {
-      scanStrings(v, re, name, path ? `${path}.${k}` : k, hits);
+      scanAllStrings(v, path ? `${path}.${keyLabel(k)}` : keyLabel(k), hits);
     }
   }
   return hits;
@@ -220,11 +231,12 @@ export function validateObservation(obj) {
     }
   }
 
-  // C1: EVERY string is printable ASCII, not just the free-text pair. Only the
-  // ASCII rule applies here -- the rest of the table would read a toolshed tool
-  // id as a path. Unknown keys are walked too, so their values are checked even
-  // though the payload is already refused.
-  for (const hit of scanStrings(o, NON_ASCII_RE, "non-ascii")) {
+  // C1 makes every string printable ASCII. The client goes further and refuses
+  // to send a payload with ANY leak-table hit in ANY string; the server holds
+  // the structured fields to that same bar, so a hostile client cannot park a
+  // path or an email in a tool id or a version. An honest client never trips
+  // this, because it ran the identical scan before sending.
+  for (const hit of scanAllStrings(o)) {
     if (!errors.includes(hit)) errors.push(hit);
   }
 

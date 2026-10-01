@@ -85,7 +85,7 @@ describe("validateObservation -- accepts", () => {
     o.mcpTool = "m".repeat(80);
     o.tools = [{ id: "t".repeat(200), version: "v".repeat(40) }];
     o.datatypes = ["x".repeat(40)];
-    o.client.version = "c".repeat(40);
+    o.client.version = "v".repeat(40);
     o.galaxy.version = "g".repeat(40);
     expect(validateObservation(o)).toEqual({ ok: true });
   });
@@ -193,7 +193,7 @@ describe("validateObservation -- leak table on description and signature", () =>
     expect(errors.filter((e) => e === "description:non-ascii")).toHaveLength(1);
   });
 
-  it("does not apply the path rules to structured fields like a toolshed id", () => {
+  it("accepts a full toolshed tool id, which looks path-like but trips no rule", () => {
     expect(validateObservation({ ...good(), tools: [{ id: "toolshed.g2.bx.psu.edu/repos/a/b/c" }] }))
       .toEqual({ ok: true });
   });
@@ -216,7 +216,32 @@ describe("validateObservation -- printable ASCII on every string", () => {
   }
 });
 
+describe("validateObservation -- leak table on every structured string", () => {
+  const cases = [
+    ["a home path in a tool id", { tools: [{ id: "/Users/alice/secret/run.sh" }] }, "tools[0].id:home-path"],
+    ["an email in a tool id", { tools: [{ id: "alice@uni.edu" }] }, "tools[0].id:email"],
+    ["a url in mcpTool", { mcpTool: "https://intra.corp/x" }, "mcpTool:url"],
+    ["a hex id as a datatype", { datatypes: ["f2db41e1fa331b3e"] }, "datatypes[0]:long-hex"],
+    ["an email as client.version", { client: { app: "orbit", version: "bob@example.org", platform: "linux" } }, "client.version:email"],
+    ["a windows path as galaxy.version", { galaxy: { server: "private", version: "C:\\Users\\bob" } }, "galaxy.version:windows-path"],
+  ];
+  for (const [name, patch, expected] of cases) {
+    it(`rejects ${name}`, () => {
+      expect(errs(patch)).toContain(expected);
+    });
+  }
+});
+
 describe("validateObservation -- error hygiene", () => {
+  it("does not echo an unknown key name that is not a plain identifier", () => {
+    const res = validateObservation({ ...good(), "/Users/alice@x.com": "v" });
+    expect(res.errors).toContain("<unknown>:unknown-key");
+    expect(JSON.stringify(res.errors)).not.toContain("alice");
+    const nested = validateObservation({ ...good(), client: { ...good().client, "jane.doe@example.org": "/home/x" } });
+    expect(JSON.stringify(nested.errors)).not.toContain("jane");
+    expect(nested.errors).toContain("client.<unknown>:unknown-key");
+  });
+
   it("never echoes a submitted value", () => {
     const errors = errs({
       description: "token sk-live-9f3a /Users/jane/secrets",
