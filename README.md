@@ -85,7 +85,7 @@ Headers: `X-Orbit-Feedback-Key` (the same shared key as `/feedback`) and
 | Response | When |
 |---|---|
 | `202 {ok,id,retractToken}` | Accepted. `retractToken` is 32 hex, returned **once**; only its sha256 is stored. |
-| `400 {ok,error:"invalid",errors:[...]}` | Failed validation. Each error is `field:rule` (e.g. `description:home-path`, `tools[0].id:non-ascii`, `extra:unknown-key`) -- a submitted value is never echoed. |
+| `400 {ok,error:"invalid",errors:[...]}` | Failed validation. Each error is `field:rule` (e.g. `description:home-path`, `tools[0].id:non-ascii`, `extra:unknown-key`) -- a submitted value is never echoed, and an unknown key whose name is not a plain identifier is reported as `<unknown>`. |
 | `400 {ok,error:"bad json"}` | Unparseable body. |
 | `401` | Missing or wrong `X-Orbit-Feedback-Key`. |
 | `413` | Body over 16 KB. |
@@ -117,8 +117,8 @@ install token is a per-install random value and not an identity.
 - Rows expire 180 days after `received_at`. A Cloudflare cron trigger
   (`[triggers] crons` in `wrangler.toml`, 04:23 UTC daily) deletes everything
   past `expires_at`. D1 has no TTL, so that sweep is the only thing enforcing it.
-- Every string in the payload must be printable ASCII. `description` and
-  `signature` are additionally refused if they contain a URL, a `/Users/` or
+- Every string in the payload (except `installToken`, which is checked as 32
+  hex) must be printable ASCII and is refused if it contains a URL, a `/Users/` or
   `/home/` path, a drive-letter path (`X:\` or `X:/`), a `~/` path, a run of 16+
   hex characters, an email-shaped token, or `history`/`dataset`/`hid` followed by
   a number. These are crude on purpose and fail closed: a message that trips one
