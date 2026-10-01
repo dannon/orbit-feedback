@@ -117,8 +117,54 @@ export async function handleDeleteObservation(request, env, id) {
   return json({ ok: true, deleted: true }, 200);
 }
 
+const ADMIN_DEFAULT_LIMIT = 100;
+const ADMIN_MAX_LIMIT = 500;
+
+// Basic auth is checked by the router before this runs. retract_hash is left out
+// of the SELECT so it cannot leak into a triage transcript; install_hash stays
+// because triage counts distinct installs per cluster.
 export async function handleAdminObservations(request, env) {
-  return json({ ok: false, error: "not implemented" }, 501);
+  const params = new URL(request.url).searchParams;
+  // Clamp both ends: SQLite reads a negative LIMIT as "no limit", which would
+  // walk straight past the cap.
+  const requested = parseInt(params.get("limit") || "", 10) || ADMIN_DEFAULT_LIMIT;
+  const limit = Math.min(Math.max(requested, 1), ADMIN_MAX_LIMIT);
+  const offset = Math.max(parseInt(params.get("offset") || "0", 10) || 0, 0);
+  // Every stored received_at sorts above the empty string, so an absent or
+  // unparseable `since` means "everything" rather than "nothing".
+  const sinceRaw = params.get("since");
+  const since = sinceRaw && Number.isFinite(Date.parse(sinceRaw)) ? sinceRaw : "";
+
+  const res = await env.DB
+    .prepare(
+      `SELECT id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, observation
+       FROM observations WHERE received_at > ? ORDER BY received_at DESC LIMIT ? OFFSET ?`,
+    )
+    .bind(since, limit, offset)
+    .all();
+
+  return json({ ok: true, rows: (res.results || []).map(withObservationFields) }, 200);
+}
+
+// Surface the stored observation's fields as first-class row properties, the same
+// way /admin/feedback does, so triage does not have to parse the blob. The row's
+// own columns win on a key collision; an unparseable blob falls back to columns.
+function withObservationFields(row) {
+  let parsed = null;
+  try {
+    const candidate = JSON.parse(row.observation);
+    if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) parsed = candidate;
+  } catch {
+    parsed = null;
+  }
+  let toolIds = row.tool_ids;
+  try {
+    const candidate = JSON.parse(row.tool_ids);
+    if (Array.isArray(candidate)) toolIds = candidate;
+  } catch {
+    // Leave the raw string; a malformed row should still be readable.
+  }
+  return { ...(parsed || {}), ...row, tool_ids: toolIds };
 }
 
 export async function deleteExpiredObservations(env, now = new Date()) {
