@@ -72,24 +72,34 @@ export async function handlePostObservation(request, env, now = new Date()) {
   const receivedAt = now.toISOString();
   const { installToken, ...stored } = payload;
 
-  await env.DB
-    .prepare(
-      `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      payload.id,
-      receivedAt,
-      addDaysIso(receivedAt, OBSERVATION_RETENTION_DAYS),
-      payload.kind,
-      payload.stage,
-      payload.signature,
-      JSON.stringify(payload.tools.map((t) => t.id)),
-      installHash,
-      await sha256Hex(retractToken),
-      JSON.stringify(stored),
-    )
-    .run();
+  try {
+    await env.DB
+      .prepare(
+        `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(
+        payload.id,
+        receivedAt,
+        addDaysIso(receivedAt, OBSERVATION_RETENTION_DAYS),
+        payload.kind,
+        payload.stage,
+        payload.signature,
+        JSON.stringify(payload.tools.map((t) => t.id)),
+        installHash,
+        await sha256Hex(retractToken),
+        JSON.stringify(stored),
+      )
+      .run();
+  } catch (err) {
+    // A resend after a lost 202 collides on the primary key. Say so, so the
+    // client can stop resending and record the row as sent without a token,
+    // rather than treating a generic 500 as a blip worth retrying.
+    if (String(err && err.message).includes("UNIQUE constraint failed")) {
+      return json({ ok: false, error: "duplicate", id: payload.id }, 409);
+    }
+    throw err;
+  }
 
   return json({ ok: true, id: payload.id, retractToken }, 202);
 }

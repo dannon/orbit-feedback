@@ -197,6 +197,18 @@ describe("POST /observations", () => {
     expect(other.status).toBe(202);
   });
 
+  it("answers 409 to a resend of an id it already holds, and keeps the one row", async () => {
+    const e = testEnv();
+    const first = await worker.fetch(post(observation({ id: "11111111-2222-4333-8444-555555555555" })), e);
+    expect(first.status).toBe(202);
+    const again = await worker.fetch(post(observation({ id: "11111111-2222-4333-8444-555555555555" })), e);
+    expect(again.status).toBe(409);
+    const body = await again.json();
+    expect(body).toEqual({ ok: false, error: "duplicate", id: "11111111-2222-4333-8444-555555555555" });
+    const n = await env.DB.prepare("SELECT COUNT(*) AS n FROM observations").first();
+    expect(n.n).toBe(1);
+  });
+
   it("returns a generic 500 and never echoes internal error text", async () => {
     const broken = testEnv({
       DB: { prepare() { throw new Error("no such table: observations"); } },
