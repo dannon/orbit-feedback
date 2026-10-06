@@ -11,7 +11,11 @@
     "db:remote": "wrangler d1 execute orbit-feedback --remote --file=./schema.sql"
   },
   "devDependencies": {
-    "vitest": "^2.1.0",
+    "@cloudflare/vitest-pool-workers": "0.19.1",
+    "vitest": "4.1.11",
     "wrangler": "^4.75.0"
+  },
+  "overrides": {
+    "vitest": "4.1.11"
   }
 }

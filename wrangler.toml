@@ -7,3 +7,8 @@ workers_dev = true
 binding = "DB"
 database_name = "orbit-feedback"
 database_id = "dcd043de-93e7-4c67-8d07-86f7940c9184"
+
+# Daily retention sweep for the observations table (180-day expiry). 04:23 UTC
+# rather than the top of the hour, which is the busiest Cloudflare cron slot.
+[triggers]
+crons = ["23 4 * * *"]
