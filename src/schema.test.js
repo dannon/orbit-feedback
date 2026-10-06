@@ -18,7 +18,7 @@ describe("schema.sql", () => {
     const res = await env.DB.prepare("PRAGMA table_info(observations)").all();
     expect(res.results.map((r) => r.name)).toEqual([
       "id", "received_at", "expires_at", "kind", "stage", "signature",
-      "tool_ids", "install_hash", "retract_hash", "observation",
+      "tool_ids", "install_hash", "ip_hash", "retract_hash", "observation",
     ]);
   });
 
@@ -30,7 +30,7 @@ describe("schema.sql", () => {
     const byName = Object.fromEntries(res.results.map((c) => [c.name, c]));
     expect(byName.id.pk).toBe(1);
     for (const name of ["received_at", "expires_at", "kind", "stage", "signature",
-                        "tool_ids", "install_hash", "retract_hash", "observation"]) {
+                        "tool_ids", "install_hash", "ip_hash", "retract_hash", "observation"]) {
       expect(byName[name].notnull, `${name} should be NOT NULL`).toBe(1);
       expect(byName[name].pk).toBe(0);
     }
@@ -43,12 +43,12 @@ describe("schema.sql", () => {
     ).rejects.toThrow();
   });
 
-  it("creates the three observation indexes", async () => {
+  it("creates the four observation indexes", async () => {
     const res = await env.DB
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_obs%' ORDER BY name")
       .all();
     expect(res.results.map((r) => r.name)).toEqual([
-      "idx_obs_cluster", "idx_obs_expires", "idx_obs_received",
+      "idx_obs_cluster", "idx_obs_expires", "idx_obs_ip", "idx_obs_received",
     ]);
   });
 
@@ -60,9 +60,9 @@ describe("schema.sql", () => {
 
   it("rejects a duplicate observation id", async () => {
     const insert = () => env.DB.prepare(
-      `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind("dup", "t", "t", "other", "unknown", "s", "[]", "h", "r", "{}").run();
+      `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, ip_hash, retract_hash, observation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind("dup", "t", "t", "other", "unknown", "s", "[]", "h", "ip", "r", "{}").run();
     await insert();
     await expect(insert()).rejects.toThrow();
   });
@@ -71,9 +71,9 @@ describe("schema.sql", () => {
 describe("test-support", () => {
   it("clears rows between calls", async () => {
     await env.DB.prepare(
-      `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind("x", "t", "t", "other", "unknown", "s", "[]", "h", "r", "{}").run();
+      `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, ip_hash, retract_hash, observation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind("x", "t", "t", "other", "unknown", "s", "[]", "h", "ip", "r", "{}").run();
     await resetDatabase();
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM observations").first()).n).toBe(0);
   });

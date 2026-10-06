@@ -106,13 +106,20 @@ describe("DELETE /observations/:id", () => {
     expect(await count()).toBe(0);
   });
 
-  it("401s without the ingest key and 503s when unconfigured", async () => {
+  it("401s without the ingest key only when one is configured, and 503s when unconfigured", async () => {
     const { id, retractToken } = await submit();
     const noKey = new Request(`https://x/observations/${id}`, {
       method: "DELETE",
       headers: { "X-Retract-Token": retractToken },
     });
     expect((await worker.fetch(noKey, testEnv())).status).toBe(401);
+    expect(await count()).toBe(1);
+    const noKeyConfigured = testEnv({ FEEDBACK_KEY: undefined });
+    const bareOther = new Request(`https://x/observations/${id}`, {
+      method: "DELETE",
+      headers: { "X-Retract-Token": "0".repeat(32) },
+    });
+    expect((await worker.fetch(bareOther, noKeyConfigured)).status).toBe(404);
     expect(
       (await worker.fetch(retract(id, retractToken), testEnv({ OBS_HASH_SECRET: undefined }))).status,
     ).toBe(503);
@@ -137,9 +144,9 @@ describe("DELETE /observations/:id", () => {
     const stmts = [];
     for (let i = 0; i < 199; i++) {
       stmts.push(env.DB.prepare(
-        `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(`seed-${i}`, now, now, "other", "unknown", "s", "[]", installHash, "r", "{}"));
+        `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, ip_hash, retract_hash, observation)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(`seed-${i}`, now, now, "other", "unknown", "s", "[]", installHash, "ip", "r", "{}"));
     }
     await env.DB.batch(stmts);
     expect(await count()).toBe(200);

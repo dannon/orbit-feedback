@@ -43,9 +43,9 @@ async function seedRowsForSameInstall(count, receivedAt) {
   const stmts = [];
   for (let i = 0; i < count; i++) {
     stmts.push(env.DB.prepare(
-      `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(`seed-${i}`, receivedAt, receivedAt, "other", "unknown", "s", "[]", installHash, "r", "{}"));
+      `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, ip_hash, retract_hash, observation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(`seed-${i}`, receivedAt, receivedAt, "other", "unknown", "s", "[]", installHash, "seed-ip", "r", "{}"));
   }
   await env.DB.batch(stmts);
   return installHash;
@@ -153,7 +153,7 @@ describe("POST /observations", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM observations").first()).n).toBe(0);
   });
 
-  it("401s a missing or wrong ingest key", async () => {
+  it("enforces the ingest key only when one is configured, like /feedback", async () => {
     const missing = new Request("https://x/observations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -162,14 +162,57 @@ describe("POST /observations", () => {
     expect((await worker.fetch(missing, testEnv())).status).toBe(401);
     const wrong = post(observation(), { "X-Orbit-Feedback-Key": "nope" });
     expect((await worker.fetch(wrong, testEnv())).status).toBe(401);
+    const noKeyConfigured = testEnv({ FEEDBACK_KEY: undefined });
+    const bare = new Request("https://x/observations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(observation()),
+    });
+    expect((await worker.fetch(bare, noKeyConfigured)).status).toBe(202);
+    expect((await worker.fetch(post(observation(), { "X-Orbit-Feedback-Key": "nope" }), noKeyConfigured)).status).toBe(202);
   });
 
-  it("fails closed with 503 when either secret is unset", async () => {
+  it("fails closed with 503 when the hash secret is unset", async () => {
     const noSecret = await worker.fetch(post(observation()), testEnv({ OBS_HASH_SECRET: undefined }));
     expect(noSecret.status).toBe(503);
     expect((await noSecret.json()).error).toBe("observations not configured");
-    const noKey = await worker.fetch(post(observation()), testEnv({ FEEDBACK_KEY: undefined }));
-    expect(noKey.status).toBe(503);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM observations").first()).n).toBe(0);
+  });
+
+  it("stores a monthly-keyed hash of the address, never the address", async () => {
+    const res = await worker.fetch(post(observation(), { "cf-connecting-ip": "203.0.113.7" }), testEnv());
+    expect(res.status).toBe(202);
+    const row = await env.DB.prepare("SELECT ip_hash, observation FROM observations").first();
+    expect(row.ip_hash).toMatch(/^[0-9a-f]{16}$/);
+    expect(JSON.stringify(row)).not.toContain("203.0.113.7");
+    const again = await worker.fetch(post(observation(), { "cf-connecting-ip": "203.0.113.7" }), testEnv());
+    expect(again.status).toBe(202);
+    const rows = await env.DB.prepare("SELECT DISTINCT ip_hash AS h FROM observations").all();
+    expect(rows.results.length).toBe(1);
+  });
+
+  it("rate-limits at 1000 per address per rolling 24h, across installs", async () => {
+    const e = testEnv();
+    const first = await worker.fetch(post(observation(), { "cf-connecting-ip": "203.0.113.9" }), e);
+    expect(first.status).toBe(202);
+    const { ip_hash: ipHash } = await env.DB.prepare("SELECT ip_hash FROM observations LIMIT 1").first();
+    const stmts = [];
+    const now = new Date().toISOString();
+    for (let i = 0; i < 999; i++) {
+      stmts.push(env.DB.prepare(
+        `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, ip_hash, retract_hash, observation)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(`ip-${i}`, now, now, "other", "unknown", "s", "[]", `install-${i % 7}`, ipHash, "r", "{}"));
+    }
+    for (let i = 0; i < stmts.length; i += 100) await env.DB.batch(stmts.slice(i, i + 100));
+    const over = await worker.fetch(
+      post(observation({ installToken: "e".repeat(32) }), { "cf-connecting-ip": "203.0.113.9" }), e,
+    );
+    expect(over.status).toBe(429);
+    const elsewhere = await worker.fetch(
+      post(observation({ installToken: "e".repeat(32) }), { "cf-connecting-ip": "198.51.100.4" }), e,
+    );
+    expect(elsewhere.status).toBe(202);
   });
 
   it("rate-limits at 200 per install per rolling 24h", async () => {

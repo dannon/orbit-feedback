@@ -25,9 +25,11 @@ CREATE TABLE IF NOT EXISTS observations (
   signature     TEXT NOT NULL,
   tool_ids      TEXT NOT NULL,          -- JSON array of tool ids
   install_hash  TEXT NOT NULL,          -- HMAC-SHA256(installToken, OBS_HASH_SECRET || month) hex[0:32]
+  ip_hash TEXT NOT NULL,
   retract_hash  TEXT NOT NULL,          -- sha256(retractToken) hex
   observation   TEXT NOT NULL           -- the validated Observation JSON, installToken REMOVED
 );
 CREATE INDEX IF NOT EXISTS idx_obs_received ON observations(received_at);
 CREATE INDEX IF NOT EXISTS idx_obs_cluster  ON observations(kind, signature);
 CREATE INDEX IF NOT EXISTS idx_obs_expires  ON observations(expires_at);
+CREATE INDEX IF NOT EXISTS idx_obs_ip       ON observations(ip_hash, received_at);

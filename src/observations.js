@@ -6,9 +6,13 @@ import { validateObservation } from "./observation-validator.js";
 
 export const MAX_OBSERVATION_BYTES = 16 * 1024;
 export const OBSERVATION_RATE_LIMIT_PER_DAY = 200;
+// A whole institution can sit behind one address, so this is several installs'
+// worth; it exists to bound junk from one source, not to meter real use.
+export const OBSERVATION_RATE_LIMIT_PER_IP_PER_DAY = 1000;
 export const OBSERVATION_RETENTION_DAYS = 180;
 
 const INSTALL_HASH_CHARS = 32;
+const IP_HASH_CHARS = 16;
 const RETRACT_TOKEN_BYTES = 16;
 const DAY_MS = 86400_000;
 
@@ -19,16 +23,27 @@ function json(obj, status) {
   });
 }
 
-// Fails closed, unlike /feedback. A private queue should refuse writes it can
-// neither authenticate nor pseudonymise, rather than quietly storing them raw.
+// Fails closed on pseudonymisation: without OBS_HASH_SECRET the route cannot
+// hash the install token or the IP, so it stores nothing. The shared key is
+// optional and enforced only when set, exactly like /feedback: no shipped Loom
+// carries one, and a key baked into a client is a speed bump, not auth. The junk
+// defence is the validator plus the per-install and per-IP caps below.
 function requireIngest(request, env) {
-  if (!env.FEEDBACK_KEY || !env.OBS_HASH_SECRET) {
+  if (!env.OBS_HASH_SECRET) {
     return json({ ok: false, error: "observations not configured" }, 503);
   }
-  if (request.headers.get("X-Orbit-Feedback-Key") !== env.FEEDBACK_KEY) {
+  if (env.FEEDBACK_KEY && request.headers.get("X-Orbit-Feedback-Key") !== env.FEEDBACK_KEY) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
   return null;
+}
+
+// Same monthly HMAC as the install hash, so a leaked table joins neither
+// installs nor addresses across months. Unlike /feedback there is no bare
+// fallback: the secret is required here.
+async function hashIp(request, env) {
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  return await monthlyHmacHex(ip, env.OBS_HASH_SECRET, IP_HASH_CHARS);
 }
 
 export async function handlePostObservation(request, env, now = new Date()) {
@@ -65,6 +80,14 @@ export async function handlePostObservation(request, env, now = new Date()) {
   if (recent && recent.n >= OBSERVATION_RATE_LIMIT_PER_DAY) {
     return json({ ok: false, error: "rate limited" }, 429);
   }
+  const ipHash = await hashIp(request, env);
+  const fromIp = await env.DB
+    .prepare("SELECT COUNT(*) AS n FROM observations WHERE ip_hash = ? AND received_at > ?")
+    .bind(ipHash, sinceIso)
+    .first();
+  if (fromIp && fromIp.n >= OBSERVATION_RATE_LIMIT_PER_IP_PER_DAY) {
+    return json({ ok: false, error: "rate limited" }, 429);
+  }
 
   // The token goes back to the contributor once and is never stored; only its
   // hash is, so a leaked table cannot be used to retract anyone else's rows.
@@ -75,8 +98,8 @@ export async function handlePostObservation(request, env, now = new Date()) {
   try {
     await env.DB
       .prepare(
-        `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, ip_hash, retract_hash, observation)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         payload.id,
@@ -87,6 +110,7 @@ export async function handlePostObservation(request, env, now = new Date()) {
         payload.signature,
         JSON.stringify(payload.tools.map((t) => t.id)),
         installHash,
+        ipHash,
         await sha256Hex(retractToken),
         JSON.stringify(stored),
       )

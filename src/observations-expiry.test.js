@@ -7,9 +7,9 @@ import worker from "./index.js";
 
 function insert(id, expiresAt, receivedAt = "2026-09-30T00:00:00.000Z") {
   return env.DB.prepare(
-    `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, receivedAt, expiresAt, "other", "unknown", "s", "[]", "h", "r", "{}");
+    `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, ip_hash, retract_hash, observation)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(id, receivedAt, expiresAt, "other", "unknown", "s", "[]", "h", "ip", "r", "{}");
 }
 
 async function ids() {

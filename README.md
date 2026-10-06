@@ -89,9 +89,9 @@ Headers: `X-Orbit-Feedback-Key` (the same shared key as `/feedback`) and
 | `400 {ok,error:"bad json"}` | Unparseable body. |
 | `401` | Missing or wrong `X-Orbit-Feedback-Key`. |
 | `413` | Body over 16 KB. |
-| `429` | 200 or more rows in the last rolling 24h for this install hash. |
-| `500 {ok,error:"internal error"}` | Includes a repeat `POST` of an `id` already stored -- ids are client-generated per observation, so that is a client bug. |
-| `503 {ok,error:"observations not configured"}` | `FEEDBACK_KEY` or `OBS_HASH_SECRET` unset. This route fails closed. |
+| `429` | 200 or more rows in the last rolling 24h for this install hash, or 1000 or more for this address hash (an institution can sit behind one address; this bounds junk from one source, not real use). |
+| `409 {ok,error:"duplicate",id}` | A repeat `POST` of an `id` already stored: a resend after a lost `202`. The client records the row as sent without a retract token and stops resending. |
+| `503 {ok,error:"observations not configured"}` | `OBS_HASH_SECRET` unset: the route cannot pseudonymise, so it stores nothing. `X-Orbit-Feedback-Key` is optional and, as on `/feedback`, enforced only when the `FEEDBACK_KEY` secret is set. |
 
 `DELETE /observations/:id` retracts one row. Headers: `X-Retract-Token` (the
 token from the `202`) and `X-Orbit-Feedback-Key`. `200 {ok,deleted:true}` on a
@@ -107,10 +107,10 @@ install token is a per-install random value and not an identity.
   first 32 hex chars. The key rotates every UTC month, so a leaked table cannot
   be joined across months. The raw `installToken` is **stripped** from the JSON
   before it is stored -- there is no column for it and it is not in the blob.
-- `/feedback`'s `ip_hash` uses the same monthly HMAC (16 chars). While
-  `OBS_HASH_SECRET` is unset it falls back to the previous bare
-  `sha256(ip)[0:16]`, so a deploy that lands before the secret does not stop
-  ingest. Set the secret.
+- `ip_hash` on both tables uses the same monthly HMAC (16 chars). `/feedback`
+  falls back to the previous bare `sha256(ip)[0:16]` while `OBS_HASH_SECRET` is
+  unset, so a deploy that lands before the secret does not stop ingest;
+  `/observations` has no fallback and answers `503` instead. Set the secret.
 - `retract_hash` is `sha256(retractToken)`. The token itself is never stored and
   is never returned a second time. `/admin/observations` does not select the
   column at all.
@@ -157,14 +157,18 @@ npm run db:remote
 
 # 3. Set the secrets.
 #    ADMIN_PASSWORD  -- Basic auth on both /admin routes.
-#    FEEDBACK_KEY    -- the X-Orbit-Feedback-Key header. Optional for /feedback,
-#                       REQUIRED for /observations (which 503s without it).
-#    OBS_HASH_SECRET -- the HMAC key for install_hash and ip_hash. Also REQUIRED
-#                       for /observations. Generate a long random value and keep
-#                       it; rotating it orphans every existing install_hash.
+#    FEEDBACK_KEY    -- the X-Orbit-Feedback-Key header. Optional on BOTH routes
+#                       and enforced only once set; no shipped Loom sends one, so
+#                       setting it turns away every current install.
+#    OBS_HASH_SECRET -- the HMAC key for install_hash and ip_hash. REQUIRED for
+#                       /observations (503 without it). Generate a long random
+#                       value and keep it; rotating it orphans every existing hash.
 npx wrangler secret put ADMIN_PASSWORD
-npx wrangler secret put FEEDBACK_KEY
-npx wrangler secret put OBS_HASH_SECRET
+openssl rand -hex 32 | npx wrangler secret put OBS_HASH_SECRET
+
+# 2b. A database whose observations table predates ip_hash needs the one-off
+#     migration (schema.sql cannot add a column to an existing table):
+npx wrangler d1 execute orbit-feedback --remote --file=./migrations/2026-10-06-observations-ip-hash.sql
 
 # 4. Deploy. Prints the https://orbit-feedback.<subdomain>.workers.dev URL.
 npm run deploy

@@ -132,9 +132,9 @@ describe("GET /admin/observations", () => {
     const stmts = [];
     for (let i = 0; i < 501; i++) {
       stmts.push(env.DB.prepare(
-        `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(`seed-${i}`, now, now, "other", "unknown", "s", "[]", "h", "r", "{}"));
+        `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, ip_hash, retract_hash, observation)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(`seed-${i}`, now, now, "other", "unknown", "s", "[]", "h", "ip", "r", "{}"));
     }
     await env.DB.batch(stmts);
     expect((await read("?limit=-1")).body.rows.length).toBe(1);
@@ -169,10 +169,10 @@ describe("GET /admin/observations", () => {
 
   it("tolerates a row whose observation column is not JSON", async () => {
     await env.DB.prepare(
-      `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, retract_hash, observation)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO observations (id, received_at, expires_at, kind, stage, signature, tool_ids, install_hash, ip_hash, retract_hash, observation)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind("broken", "2026-09-30T00:00:00.000Z", "2027-03-29T00:00:00.000Z",
-      "other", "unknown", "sig", "{ not json", "h", "r", "{ not json").run();
+      "other", "unknown", "sig", "{ not json", "h", "ip", "r", "{ not json").run();
     const { status, body } = await read();
     expect(status).toBe(200);
     expect(body.rows[0].id).toBe("broken");
